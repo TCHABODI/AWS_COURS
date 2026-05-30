@@ -10,6 +10,18 @@ Parameters:
     Description: S3 bucket name
     Default: stchabodi-s3-bucket-trigger-lambda
 Resources:
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${Environment}-s3-trigger-db
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: PK
+        AttributeType: S
+      KeySchema:
+      - AttributeName: PK
+        KeyType: HASH
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -38,7 +50,10 @@ Resources:
             Action:
             - dynamodb:PutItem
             - dynamodb:GetItem
-            Resource: arn:aws:dynamodb:*:*:table/s3-trigger-db
+            Resource:
+              Fn::GetAtt:
+              - DynamoDBTable
+              - Arn
   LambdaTigger:
     Type: AWS::Lambda::Function
     Properties:
@@ -52,10 +67,11 @@ Resources:
       Runtime: python3.11
       Code:
         S3Bucket: iabd-sourcecode-management-bucket
-        S3Key: 004709a0aff522a584a87c9dbd87c6c2
+        S3Key: ab20d6cccaeac039bc0ba8f986789908
       Environment:
         Variables:
-          TABLE_NAME: s3-trigger-db
+          TABLE_NAME:
+            Fn::Sub: ${Environment}-s3-trigger-db
           ENV_NAME:
             Ref: Environment
           BUCKET_NAME:

@@ -10,6 +10,20 @@ Parameters:
     Description: 'S3 bucket name'
     Default: 'stchabodi-s3-bucket-trigger-lambda'
 Resources:
+
+  # Table DynamoDB pour stocker les fichiers images
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-s3-trigger-db'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -36,7 +50,7 @@ Resources:
                 Action:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
-                Resource: 'arn:aws:dynamodb:*:*:table/s3-trigger-db'
+                Resource: !GetAtt DynamoDBTable.Arn
   LambdaTigger:
     Type: AWS::Lambda::Function
     Properties:
@@ -47,7 +61,7 @@ Resources:
       Code: ../src
       Environment:
         Variables:
-          TABLE_NAME: 's3-trigger-db'
+          TABLE_NAME: !Sub '${Environment}-s3-trigger-db'
           ENV_NAME: !Ref Environment
           BUCKET_NAME: !Sub '${Environment}-${BucketName}'
   LambdaInvokePermission:
