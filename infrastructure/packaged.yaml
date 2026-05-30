@@ -52,7 +52,10 @@ Resources:
       Runtime: python3.11
       Code:
         S3Bucket: iabd-sourcecode-management-bucket
-        S3Key: 238555301a64571fccdd617b4f1f5c36
+        S3Key: dc3bde2019904e5e21f042285c83d354
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: s3-trigger-db
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:

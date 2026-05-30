@@ -45,6 +45,9 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.11
       Code: ../src
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: s3-trigger-db
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
