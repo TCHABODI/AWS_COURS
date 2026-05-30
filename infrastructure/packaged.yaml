@@ -52,10 +52,14 @@ Resources:
       Runtime: python3.11
       Code:
         S3Bucket: iabd-sourcecode-management-bucket
-        S3Key: dc3bde2019904e5e21f042285c83d354
+        S3Key: 004709a0aff522a584a87c9dbd87c6c2
       Environment:
         Variables:
-          DYNAMODB_TABLE_NAME: s3-trigger-db
+          TABLE_NAME: s3-trigger-db
+          ENV_NAME:
+            Ref: Environment
+          BUCKET_NAME:
+            Fn::Sub: ${Environment}-${BucketName}
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -80,3 +84,48 @@ Resources:
             Fn::GetAtt:
             - LambdaTigger
             - Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: .jpg
+        - Event: s3:ObjectCreated:*
+          Function:
+            Fn::GetAtt:
+            - LambdaTigger
+            - Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: .jpeg
+        - Event: s3:ObjectCreated:*
+          Function:
+            Fn::GetAtt:
+            - LambdaTigger
+            - Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: .png
+        - Event: s3:ObjectCreated:*
+          Function:
+            Fn::GetAtt:
+            - LambdaTigger
+            - Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: .gif
+        - Event: s3:ObjectCreated:*
+          Function:
+            Fn::GetAtt:
+            - LambdaTigger
+            - Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: .webp

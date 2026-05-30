@@ -47,7 +47,9 @@ Resources:
       Code: ../src
       Environment:
         Variables:
-          DYNAMODB_TABLE_NAME: s3-trigger-db
+          TABLE_NAME: 's3-trigger-db'
+          ENV_NAME: !Ref Environment
+          BUCKET_NAME: !Sub '${Environment}-${BucketName}'
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -64,3 +66,36 @@ Resources:
         LambdaConfigurations:
           - Event: 's3:ObjectCreated:*'
             Function: !GetAtt LambdaTigger.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpg
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaTigger.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpeg
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaTigger.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .png
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaTigger.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .gif
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaTigger.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .webp
