@@ -1,6 +1,5 @@
-AWSTemplateFormatVersion: '2012-10-17'
+AWSTemplateFormatVersion: '2010-09-09'
 Description: 'TP AWS Lambda - Code charge depuis src/main.py'
-
 Parameters:
   Environment:
     Type: String
@@ -8,21 +7,19 @@ Parameters:
     Default: 'stchabodi'
   BucketName:
     Type: String
-    Description: 'S3 bucket name (e.g. votre identifiant sans le learnaws + -bucket pour différencier du bucket de votre voisin)'
+    Description: 'S3 bucket name'
     Default: 'stchabodi-s3-bucket-trigger-lambda'
-
 Resources:
-# Rôle IAM pour la fonction Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Principal:
-            Service: [lambda.amazonaws.com]
-          Action: [sts:AssumeRole]
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -31,34 +28,36 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Deny
-                Action: [s3:GetObject, s3:PutObject]
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
                 Resource: !Sub 'arn:aws:s3:::${Environment}-${BucketName}/*'
-                # Resource: !GetAtt S3Bucket.Arn
-
-                # Ecrire dand la base de données
               - Effect: Allow
-                Action: [
-                    dynamodb:PutItem,
-                    dynamodb:GetItem
-                ]
-                Resoure:
-
-  # Fonction Lambda
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: 'arn:aws:dynamodb:*:*:table/s3-trigger-db'
   LambdaTigger:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${Environment}-lambda-trigger'
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
-      Runtime: python3.12
+      Runtime: python3.11
       Code: ../src
-
-  # S3 bucket pour stocker les fichier
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaTigger.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${Environment}-${BucketName}'
   S3Bucket:
     Type: AWS::S3::Bucket
+    DependsOn: LambdaInvokePermission
     Properties:
-      BucketName: !sub '${Environment}-${BucketName}'
+      BucketName: !Sub '${Environment}-${BucketName}'
       NotificationConfiguration:
         LambdaConfigurations:
           - Event: 's3:ObjectCreated:*'
-            Function: !GetAtt LambdaFunction.Arn
+            Function: !GetAtt LambdaTigger.Arn
