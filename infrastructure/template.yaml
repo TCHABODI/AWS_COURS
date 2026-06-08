@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Devoir Final - Pipeline d'Ingestion de Donnees IoT en Temps Reel (Serverless)
+  Infrastructure complete : Lambda, API Gateway, S3, DynamoDB, CloudFront (x2), OAC
+
+Parameters:
+  Environment:
+    Type: String
+    Default: 'stchabodi'
+    Description: 'Votre identifiant etudiant (sans le prefixe learnaws)'
+
+Resources:
+
+  # Bucket S3 pour le Data Lake - stockage brut des donnees IoT
+  S3BucketRaw:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${Environment}-iot-datalake'
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: IoTPipeline
+        - Key: Layer
+          Value: DataLake
+
+  # Bucket S3 pour la documentation technique - acces prive, expose via CloudFront OAC uniquement
+  S3BucketDoc:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${Environment}-tech-doc'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: IoTPipeline
+        - Key: Layer
+          Value: Documentation
+
+  # Table DynamoDB servant de Feature Store pour les metriques agregees
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-iot-feature-store'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      Tags:
+        - Key: Project
+          Value: IoTPipeline
+        - Key: Layer
+          Value: FeatureStore
+
+  # Role IAM attribue a la fonction Lambda avec les permissions minimales necessaires
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${Environment}-IoTPipelinePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3DataLakeWrite
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${S3BucketRaw.Arn}/*'
+              - Sid: DynamoDBFeatureStoreWrite
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt DynamoDBTable.Arn
+
+  # Fonction Lambda de traitement des donnees IoT - runtime Python 3.11
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${Environment}-iot-ingestion'
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          S3_BUCKET: !Sub '${Environment}-iot-datalake'
+          DYNAMODB_TABLE: !Sub '${Environment}-iot-feature-store'
+      Code:
+        ZipFile: |
+          import json, os, uuid, boto3, traceback
+          from datetime import datetime
+          from decimal import Decimal
+
+          s3 = boto3.client('s3')
+          dynamodb = boto3.resource('dynamodb')
+
+          def lambda_handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              try:
+                  body = json.loads(event.get('body') or '{}')
+                  records = body.get('records', [])
+                  if not records:
+                      raise ValueError("Champ 'records' manquant ou vide")
+                  now = datetime.utcnow()
+                  rid = context.aws_request_id
+                  key = f"raw-zone/year={now.year}/month={now.month:02d}/{rid}.json"
+                  bucket = os.environ['S3_BUCKET']
+                  s3.put_object(Bucket=bucket, Key=key,
+                      Body=json.dumps(body, ensure_ascii=False),
+                      ContentType='application/json')
+                  print(f"S3 OK: {key}")
+                  temps = [float(r['temperature']) for r in records if 'temperature' in r and r['temperature'] is not None]
+                  avg_t = round(sum(temps)/len(temps), 2) if temps else 0.0
+                  err_c = sum(1 for r in records if r.get('status') == 'ERROR')
+                  table = dynamodb.Table(os.environ['DYNAMODB_TABLE'])
+                  table.put_item(Item={
+                      'request_id': rid,
+                      'timestamp': now.isoformat() + 'Z',
+                      's3_path': f"s3://{bucket}/{key}",
+                      'avg_temperature': Decimal(str(avg_t)),
+                      'error_count': err_c,
+                      'record_count': len(records)
+                  })
+                  print(f"DynamoDB OK: request_id={rid}, avg_temp={avg_t}, errors={err_c}")
+                  return {
+                      'statusCode': 201,
+                      'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                      'body': json.dumps({'request_id': rid, 'message': 'Ingestion reussie',
+                          's3_path': key, 'avg_temperature': avg_t, 'error_count': err_c,
+                          'record_count': len(records)})
+                  }
+              except json.JSONDecodeError as e:
+                  # Payload JSON syntaxiquement invalide : on logue et on retourne 400
+                  print(f"ERREUR JSON: {e}"); traceback.print_exc()
+                  return {'statusCode': 400, 'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({'error': f'Payload JSON invalide: {str(e)}'})}
+              except Exception as e:
+                  # Toute autre erreur (ex: ValueError sur temperature invalide) :
+                  # on logue le stack trace complet et on releve l'exception
+                  # pour que CloudWatch l'enregistre comme une erreur Lambda.
+                  print(f"ERREUR INTERNE: {e}"); traceback.print_exc()
+                  raise
+      Tags:
+        - Key: Project
+          Value: IoTPipeline
+
+  # API Gateway REST - point d'entree HTTP de l'architecture
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${Environment}-iot-api'
+      Description: 'API de collecte des donnees IoT en temps reel'
+
+  # Ressource /ingest exposee sur l'API
+  IngestResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: ingest
+
+  # Methode POST sur /ingest, integree en proxy Lambda
+  IngestMethodPOST:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref IngestResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations
+
+  # Deploiement de l'API sur le stage prod
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: IngestMethodPOST
+    Properties:
+      RestApiId: !Ref RestApi
+      StageName: prod
+
+  # Permission autorisant API Gateway a invoquer la fonction Lambda
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*'
+
+  # Distribution CloudFront placee devant l'API Gateway - CDN d'ingestion IoT mondial
+  CloudFrontIngestion:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: ApiDeployment
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${Environment} - IoT Ingestion CDN (API Gateway)'
+        Enabled: true
+        Origins:
+          - Id: ApiGatewayOrigin
+            DomainName: !Sub '${RestApi}.execute-api.${AWS::Region}.amazonaws.com'
+            OriginPath: /prod
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: ApiGatewayOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: true
+            Headers:
+              - Content-Type
+              - Authorization
+            Cookies:
+              Forward: none
+          # TTL a zero pour eviter la mise en cache des requetes POST
+          DefaultTTL: 0
+          MaxTTL: 0
+          MinTTL: 0
+        PriceClass: PriceClass_100
+
+  # Origin Access Control utilise par CloudFront pour signer ses requetes vers S3 (SigV4)
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${Environment}-tech-doc-oac'
+        Description: 'OAC securise pour le bucket de documentation technique'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Distribution CloudFront pour la documentation - acces prive via OAC uniquement
+  CloudFrontDoc:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${Environment} - Technical Documentation CDN (S3 + OAC)'
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: DocS3Origin
+            DomainName: !GetAtt S3BucketDoc.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: DocS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+          MinTTL: 0
+        PriceClass: PriceClass_100
+
+  # Politique du bucket de documentation - autorise uniquement la distribution CloudFront declaree
+  DocBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3BucketDoc
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${S3BucketDoc.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDoc}'
+
+Outputs:
+
+  CloudFrontIngestionURL:
+    Description: "URL CloudFront no.1 - Point d'entree IoT (POST /ingest)"
+    Value: !Sub 'https://${CloudFrontIngestion.DomainName}/ingest'
+    Export:
+      Name: !Sub '${Environment}-CloudFrontIngestionURL'
+
+  CloudFrontDocURL:
+    Description: "URL CloudFront no.2 - Documentation technique (OAC securise)"
+    Value: !Sub 'https://${CloudFrontDoc.DomainName}'
+    Export:
+      Name: !Sub '${Environment}-CloudFrontDocURL'
+
+  ApiGatewayDirectURL:
+    Description: "URL directe API Gateway (sans CDN, pour debug)"
+    Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/ingest'
+
+  S3BucketRawName:
+    Description: "Nom du bucket S3 Data Lake (donnees brutes IoT)"
+    Value: !Ref S3BucketRaw
+
+  S3BucketDocName:
+    Description: "Nom du bucket S3 Documentation (prive)"
+    Value: !Ref S3BucketDoc
+
+  DynamoDBTableName:
+    Description: "Nom de la table DynamoDB Feature Store"
+    Value: !Ref DynamoDBTable
+
+  LambdaFunctionName:
+    Description: "Nom de la fonction Lambda d'ingestion"
+    Value: !Ref LambdaFunction

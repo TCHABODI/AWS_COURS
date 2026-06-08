@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline IoT Serverless - Documentation Technique</title>
+  <style>
+    :root {
+      --aws-orange: #ff9900;
+      --aws-dark:   #232f3e;
+      --aws-blue:   #1a6ea7;
+      --bg:         #f4f6f8;
+      --card-bg:    #ffffff;
+      --text:       #333333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 40px 20px;
+      line-height: 1.7;
+    }
+    .container { max-width: 960px; margin: auto; }
+
+    header {
+      background: var(--aws-dark);
+      color: white;
+      padding: 40px;
+      border-radius: 10px;
+      margin-bottom: 32px;
+      border-left: 8px solid var(--aws-orange);
+    }
+    header h1 { font-size: 1.7em; margin-bottom: 10px; color: var(--aws-orange); }
+    header p  { color: #ccc; font-size: 0.95em; }
+    header .meta { margin-top: 14px; }
+    header .meta span {
+      display: inline-block;
+      background: rgba(255,153,0,0.15);
+      border: 1px solid var(--aws-orange);
+      color: var(--aws-orange);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      margin-right: 8px;
+      margin-top: 6px;
+    }
+
+    section {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+    h2 {
+      color: var(--aws-dark);
+      font-size: 1.2em;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--aws-orange);
+    }
+    h3 { color: var(--aws-blue); font-size: 1em; margin: 16px 0 8px; }
+    p  { margin-bottom: 12px; }
+    ul, ol { padding-left: 24px; margin-bottom: 12px; }
+    li { margin-bottom: 6px; }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 16px 0;
+    }
+    .box {
+      background: var(--aws-dark);
+      color: white;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 0.85em;
+      text-align: center;
+      min-width: 120px;
+    }
+    .box .label { font-size: 0.75em; color: var(--aws-orange); display: block; margin-bottom: 2px; }
+    .arrow { color: var(--aws-orange); font-size: 1.4em; font-weight: bold; }
+
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .service-card {
+      background: var(--aws-dark);
+      color: white;
+      border-radius: 8px;
+      padding: 16px;
+      border-top: 3px solid var(--aws-orange);
+    }
+    .service-card .svc-name { color: var(--aws-orange); font-weight: bold; font-size: 0.9em; }
+    .service-card .svc-role { color: #ccc; font-size: 0.82em; margin-top: 4px; }
+
+    code {
+      background: #eef2f5;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+      color: #c7254e;
+    }
+    pre {
+      background: var(--aws-dark);
+      color: #f8f8f2;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.88em;
+      line-height: 1.6;
+      margin: 14px 0;
+      border-left: 4px solid var(--aws-orange);
+    }
+
+    .notice {
+      background: #fff8e1;
+      border-left: 4px solid #f0ad00;
+      padding: 16px;
+      border-radius: 4px;
+      margin: 14px 0;
+    }
+    .notice strong { color: #856404; }
+
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 24px;
+      border-top: 1px solid #ddd;
+      color: #888;
+      font-size: 0.88em;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Pipeline d'Ingestion de Donnees IoT en Temps Reel (Serverless)</h1>
+    <p>Documentation technique de l'architecture Big Data deployee sur AWS</p>
+    <div class="meta">
+      <span>Cloud Computing et Big Data</span>
+      <span>Master 1</span>
+      <span>stchabodi</span>
+      <span>Juin 2026</span>
+      <span>Acces securise via CloudFront OAC</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Architecture Big Data - Vue d'ensemble</h2>
+    <p>
+      Cette architecture <strong>100% serverless</strong> collecte en temps reel les flux de donnees
+      emis par des milliers de capteurs IoT industriels via des requetes HTTP POST.
+      L'ensemble de l'infrastructure est automatisee par <strong>AWS CloudFormation</strong>.
+    </p>
+
+    <h3>Flux d'ingestion IoT</h3>
+    <div class="flow">
+      <div class="box"><span class="label">IoT Capteurs</span>POST JSON</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">CDN</span>CloudFront no.1</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">API REST</span>API Gateway</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">Traitement</span>Lambda Python 3.11</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">Data Lake</span>S3 (brut)</div>
+    </div>
+    <div class="flow" style="margin-top:4px; padding-left:460px">
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">Feature Store</span>DynamoDB</div>
+    </div>
+
+    <h3>Flux de documentation</h3>
+    <div class="flow">
+      <div class="box"><span class="label">Data Scientists</span>Navigateur</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">CDN + OAC</span>CloudFront no.2</div>
+      <span class="arrow">-></span>
+      <div class="box"><span class="label">Prive</span>S3 Doc Bucket</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Services AWS utilises</h2>
+    <div class="services-grid">
+      <div class="service-card">
+        <div class="svc-name">AWS CloudFormation</div>
+        <div class="svc-role">Infrastructure as Code - automatisation complete</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">Amazon API Gateway</div>
+        <div class="svc-role">Point d'entree HTTP REST - route POST /ingest</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">AWS Lambda (Python 3.11)</div>
+        <div class="svc-role">Traitement serverless - parse, calcul, stockage</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">Amazon S3 (x2)</div>
+        <div class="svc-role">Data Lake (brut) et bucket doc (prive)</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">Amazon DynamoDB</div>
+        <div class="svc-role">Feature Store - metriques agregees par requete</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">Amazon CloudFront (x2)</div>
+        <div class="svc-role">CDN ingestion et CDN documentation avec OAC</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">Amazon CloudWatch</div>
+        <div class="svc-role">Logs, monitoring et alertes erreurs Lambda</div>
+      </div>
+      <div class="service-card">
+        <div class="svc-name">AWS IAM</div>
+        <div class="svc-role">Role Lambda - acces S3 et DynamoDB uniquement</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Strategie de partitionnement S3 (Data Lake)</h2>
+    <p>
+      Les fichiers JSON bruts sont stockes selon un schema <strong>Hive-compatible</strong>
+      qui permet des requetes performantes avec AWS Athena ou Apache Spark.
+    </p>
+    <pre>s3://{environment}-iot-datalake/
+└── raw-zone/
+    └── year=2026/
+        └── month=06/
+            └── {request_id}.json</pre>
+    <p>Chaque fichier contient le payload complet de la requete avec tous les enregistrements du batch.</p>
+  </section>
+
+  <section>
+    <h2>Schema DynamoDB - Feature Store</h2>
+    <p>
+      Chaque execution de la Lambda genere une entree dans la table
+      <code>{environment}-iot-feature-store</code> :
+    </p>
+    <pre>{
+  "request_id":      "abc-123-...",
+  "timestamp":       "2026-06-07T10:00:00.000Z",
+  "s3_path":         "s3://bucket/raw-zone/year=2026/month=06/abc.json",
+  "avg_temperature": 81.4,
+  "error_count":     2,
+  "record_count":    4
+}</pre>
+  </section>
+
+  <section>
+    <h2>Securite - Acces a la documentation via CloudFront OAC</h2>
+    <div class="notice">
+      <strong>Acces direct S3 bloque :</strong> Toute tentative d'acces a l'URL S3 directe
+      retourne une erreur <strong>HTTP 403 Access Denied</strong>.
+      Le bucket de documentation a le Block Public Access active.
+    </div>
+    <p>
+      L'acces est autorise uniquement via la distribution CloudFront grace au mecanisme
+      <strong>OAC (Origin Access Control)</strong> :
+    </p>
+    <ol>
+      <li>CloudFront signe chaque requete vers S3 avec <strong>AWS Signature V4 (SigV4)</strong>.</li>
+      <li>La <strong>Bucket Policy</strong> autorise uniquement les requetes dont l'ARN source
+          correspond a la distribution CloudFront declaree.</li>
+      <li>Les utilisateurs accedent au site via <strong>HTTPS uniquement</strong> (redirection forcee).</li>
+    </ol>
+    <pre># Condition de la Bucket Policy (extrait CloudFormation)
+Condition:
+  StringEquals:
+    AWS:SourceArn: "arn:aws:cloudfront::ACCOUNT_ID:distribution/DISTRIB_ID"</pre>
+  </section>
+
+  <section>
+    <h2>Commande CLI - Upload de la documentation</h2>
+    <p>
+      Pour uploader ce fichier <code>index.html</code> dans le bucket de documentation :
+    </p>
+    <pre>aws s3 cp index.html s3://{environment}-tech-doc/index.html \
+  --content-type "text/html; charset=utf-8"</pre>
+    <p>Verification de la presence du fichier dans le bucket :</p>
+    <pre>aws s3 ls s3://{environment}-tech-doc/</pre>
+  </section>
+
+  <footer>
+    <p>
+      Pipeline d'Ingestion IoT Serverless - Architecture AWS CloudFormation<br/>
+      Master 1 Cloud Computing et Big Data - Juin 2026
+    </p>
+    <p style="margin-top:8px;">
+      Ce site est accessible uniquement via Amazon CloudFront avec Origin Access Control.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Environnements virtuels Python
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Fichiers de build AWS SAM
+.aws-sam/
+
+# Archives de soumission
+*.zip
+
+# Variables d'environnement et secrets
+.env
+*.env
+
+# Fichiers IDE
+.idea/
+.vscode/
+
+# Systeme
+.DS_Store
+Thumbs.db
+
