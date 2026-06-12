@@ -1,5 +1,6 @@
 ﻿# Pipeline d'Ingestion de Donnees IoT en Temps Reel - Serverless
-**Cours :** Cloud Computing et Big Data - Master 1
+**Cours :** Introduction a AWS - Master 1
+**Responsable :** M. Herve LOKOSSOU
 **Auteur :** stchabodi
 **Date :** Juin 2026
 ---
@@ -69,7 +70,7 @@ devoir_final/
 | 12 | CloudFrontDoc | Amazon CloudFront | CDN devant le bucket de documentation |
 | 13 | DocBucketPolicy | S3 Bucket Policy | Autorise uniquement CloudFront a lire le bucket doc |
 ---
-## Etape 1 - Preparation de l'environnement
+## Etape 1 - Preparation de l'environnement 
 Avant de deployer quoi que ce soit, il faut s'assurer que les outils necessaires sont
 en place sur votre machine.
 ### 1.1 Verifier que l'AWS CLI est installe
@@ -113,29 +114,79 @@ Le script de test utilise la bibliotheque `requests` pour faire des requetes HTT
 pip install requests
 ```
 ---
-## Etape 2 - Deploiement de l'infrastructure avec CloudFormation
-C'est l'etape la plus importante du projet. Le fichier `infrastructure/template.yaml`
-decrit l'integralite de l'infrastructure AWS. En le deployant, CloudFormation va creer
-automatiquement et dans le bon ordre les 13 ressources listees precedemment.
-### 2.1 Deployer via la console AWS (methode recommandee pour les captures)
-Connectez-vous a la console AWS puis suivez ces etapes :
-1. Dans la barre de recherche en haut, tapez "CloudFormation" et cliquez sur le service.
-2. Cliquez sur le bouton "Creer une pile" en haut a droite de la page.
-3. Selectionnez "Avec de nouvelles ressources (standard)".
-4. Choisissez "Charger un fichier de modele", cliquez sur "Choisir un fichier"
-   et selectionnez `infrastructure/template.yaml` depuis votre dossier de projet.
-5. Cliquez sur "Suivant".
-6. Donnez un nom a votre pile : `tp-final-iot-pipeline`
-7. Dans le champ "Environment", saisissez votre identifiant sans le prefixe "learnaws",
-   par exemple `stchabodi`. Ce parametre sert a nommer toutes les ressources AWS.
-8. Cliquez sur "Suivant" deux fois jusqu'a la page de confirmation finale.
-9. En bas de la page, cochez la case :
-   "Je comprends qu'AWS CloudFormation peut creer des ressources IAM avec des noms personnalises."
-10. Cliquez sur "Creer la pile" et patientez.
-### 2.2 Deployer via la CLI (methode alternative)
-Si vous preferez la ligne de commande, placez-vous dans le dossier `devoir_final`
-et executez :
+## Etape 2 - Deploiement de l'infrastructure avec AWS SAM CLI
+
+> **IMPORTANT** : Le template utilise `Transform: AWS::Serverless-2016-10-31` et une
+> ressource `AWS::Serverless::Function` avec `CodeUri: ../src/`. Ce template **ne peut
+> pas etre deploye directement** via la console AWS ni via `aws cloudformation deploy`
+> sans passer par SAM CLI au prealable. SAM est necessaire pour packager le code Python
+> et transformer le template avant envoi a CloudFormation.
+>
+> Si vous tentez de charger `infrastructure/template.yaml` directement dans la console
+> AWS CloudFormation, vous obtiendrez l'erreur :
+> `Template format error: Unrecognized resource types: [AWS::Serverless::Function]`
+
+### 2.1 Verifier les pre-requis SAM et Docker
+
 ```bash
+sam --version   # SAM CLI, version 1.x.x
+docker --version  # Docker est requis pour sam build (ou utiliser --use-container=false)
+```
+
+Si SAM CLI n'est pas installe :
+https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+
+### 2.2 Valider le template
+
+```bash
+cd devoir_final
+make validate
+```
+Equivalent direct :
+```bash
+sam validate --region eu-west-3 --template infrastructure/template.yaml --lint
+```
+Reponse attendue : `infrastructure/template.yaml is a valid SAM Template`
+
+### 2.3 Construire le package Lambda
+
+```bash
+make build
+```
+Equivalent direct :
+```bash
+sam build --region eu-west-3 --template infrastructure/template.yaml
+```
+SAM lit `infrastructure/template.yaml`, localise le code via `CodeUri: ../src/`,
+installe les dependances de `src/requirements.txt` (fastapi, mangum) et genere
+l'artefact deployable dans `.aws-sam/build/`.
+
+### 2.4 Premier deploiement (mode guide interactif)
+
+```bash
+make deploy
+```
+Equivalent direct :
+```bash
+sam deploy --guided \
+  --region eu-west-3 \
+  --stack-name tp-final-iot-pipeline-stchabodi \
+  --template-file .aws-sam/build/template.yaml \
+  --no-fail-on-empty-changeset \
+  --parameter-overrides Environment=stchabodi \
+  --capabilities CAPABILITY_IAM
+```
+Repondez aux questions posees par SAM (Stack Name, Region, Environment, confirmations).
+L'option `--capabilities CAPABILITY_IAM` est obligatoire car le template cree un role IAM.
+
+### 2.5 (Ancienne methode - NE PAS UTILISER) Deploiement direct CloudFormation
+
+> Cette methode est **incompatible** avec ce projet et produira une erreur.
+> Elle n'est fournie qu'a titre informatif pour comprendre la difference entre
+> `aws cloudformation deploy` (CloudFormation pur) et `sam deploy` (SAM).
+
+```bash
+# NE PAS EXECUTER - echouera avec "Unrecognized resource types: [AWS::Serverless::Function]"
 aws cloudformation deploy \
   --stack-name tp-final-iot-pipeline \
   --template-file infrastructure/template.yaml \
@@ -143,9 +194,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM \
   --region eu-west-3
 ```
-L'option `--capabilities CAPABILITY_IAM` est obligatoire car le template cree un role
-IAM. Sans elle, la commande echoue par mesure de securite AWS.
-### 2.3 Suivre la progression du deploiement
+### 2.6 Suivre la progression du deploiement
 Le deploiement prend environ 3 a 5 minutes. CloudFormation cree les ressources dans
 un ordre precis en respectant les dependances : le role IAM d'abord, puis la Lambda
 (qui a besoin du role), puis l'API Gateway (qui a besoin de la Lambda), etc.
@@ -163,7 +212,7 @@ une erreur s'est produite : consultez l'onglet "Evenements" pour voir quel messa
 d'erreur a ete retourne et quelle ressource a cause le probleme.
 **Capture d'ecran requise ici :** L'interface CloudFormation affichant le statut
 CREATE_COMPLETE avec la liste des ressources creees dans l'onglet "Ressources".
-### 2.4 Recuperer les URLs generees dans les Outputs
+### 2.7 Recuperer les URLs generees dans les Outputs
 Une fois la pile deployee, CloudFormation expose les URLs importantes dans l'onglet
 "Sorties". Ces URLs sont generees dynamiquement et propres a votre deploiement.
 Vous en avez besoin pour toutes les etapes suivantes.
@@ -185,71 +234,100 @@ Notez imperativement ces deux valeurs :
 CloudFront clairement visibles.
 ---
 ## Etape 3 - Comprendre le code de la fonction Lambda
-Le fichier `src/index.py` contient le code complet de la fonction Lambda. Le meme
-algorithme est presente en version compacte dans `infrastructure/template.yaml`
-(propriete ZipFile) pour le deploiement direct via CloudFormation.
-### 3.1 Ce que fait la Lambda, etape par etape
-Quand un capteur IoT envoie une requete HTTP POST avec ses mesures, voici ce qui se
-passe a l'interieur de la Lambda :
-**Etape A - Reception et parsing du payload**
-La Lambda recoit l'evenement API Gateway qui contient le corps de la requete en JSON.
-Elle commence par le decoder :
-```python
-body = json.loads(event.get('body') or '{}')
-records = body.get('records', [])
+
+Le fichier `src/index.py` contient le code complet de la fonction Lambda. L'architecture
+choisie est **FastAPI + Mangum** (meme approche que le TP4). FastAPI gere le routage HTTP
+et la validation des donnees via Pydantic. Mangum est l'adaptateur qui permet d'executer
+une application ASGI/FastAPI dans le runtime AWS Lambda, en traduisant les evenements
+API Gateway en requetes ASGI et inversement.
+
 ```
-Si le champ `records` est absent ou vide, une ValueError est levee immediatement.
-Si le JSON est syntaxiquement invalide, un JSONDecodeError est leve.
-**Etape B - Sauvegarde brute dans S3 avec partitionnement temporel**
-Le payload complet est sauvegarde tel quel dans S3, dans un chemin structure par
-annee et mois. Ce format s'appelle partitionnement Hive. Il est standard dans les
-Data Lakes car il permet a des outils comme AWS Athena de ne lire que les partitions
-pertinentes lors d'une requete analytique, ce qui reduit les couts et le temps.
+[API Gateway Event] --> [Mangum adapter] --> [FastAPI app] --> [index.py handlers]
+```
+
+Le `lambda_handler` pointe sur l'instance Mangum :
+```python
+lambda_handler = Mangum(app, lifespan="off")
+```
+
+### 3.1 Ce que fait la Lambda, etape par etape
+
+Quand un capteur IoT envoie une requete HTTP POST, voici ce qui se passe :
+
+**Etape A - Validation automatique du schema par Pydantic**
+
+Pydantic valide automatiquement le corps de la requete contre les modeles declares.
+Si un champ requis (`sensor_id`, `status`) est absent ou si le type est incorrect,
+FastAPI retourne HTTP 422 (Unprocessable Entity) sans meme entrer dans la fonction handler.
+
+```python
+class SensorRecord(BaseModel):
+    sensor_id: str        # requis
+    temperature: Optional[float] = None
+    status: str           # requis
+    # ...
+
+class IoTPayload(BaseModel):
+    records: List[SensorRecord]  # liste requise
+```
+
+**Etape B - Verification de la liste records**
+
+Si `records` est une liste vide, une `ValueError` est levee explicitement :
+```python
+if not records:
+    raise ValueError("Le champ 'records' est vide - aucun enregistrement a ingerer")
+```
+
+**Etape C - Sauvegarde brute dans S3 avec partitionnement temporel**
+
+Le payload est serialise en JSON et sauvegarde dans S3 avec un chemin structure :
 ```python
 s3_key = f"raw-zone/year={now.year}/month={now.month:02d}/{request_id}.json"
-s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=json.dumps(body))
+s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=json.dumps(payload.dict(), ...))
 ```
+
 Exemple de cle S3 generee : `raw-zone/year=2026/month=06/abc123-def456.json`
-**Etape C - Calcul des metriques a la volee**
-La Lambda calcule deux indicateurs sur les donnees recues :
-- La temperature moyenne de tous les capteurs du batch
-- Le nombre de capteurs en etat d'erreur (statut "ERROR")
+
+**Etape D - Calcul des metriques a la volee**
+
 ```python
-temperatures = [float(r['temperature']) for r in records
-                if 'temperature' in r and r['temperature'] is not None]
+temperatures = [r.temperature for r in records if r.temperature is not None]
 avg_temperature = round(sum(temperatures) / len(temperatures), 2) if temperatures else 0.0
-error_count = sum(1 for r in records if r.get('status') == 'ERROR')
+error_count = sum(1 for r in records if r.status == "ERROR")
 ```
-Note importante : boto3 ne peut pas stocker des nombres flottants Python directement
-dans DynamoDB. Il faut absolument les convertir en type Decimal :
-```python
-'avg_temperature': Decimal(str(avg_temperature))
-```
-**Etape D - Enregistrement du rapport dans DynamoDB**
-Un rapport condense est ecrit dans DynamoDB. Il contient l'identifiant unique de la
-requete, l'horodatage, le chemin S3 du fichier brut, la temperature moyenne et le
-nombre d'anomalies detectees.
+
+Note : boto3 exige `Decimal(str(valeur))` pour stocker des nombres flottants dans DynamoDB.
+
+**Etape E - Enregistrement dans DynamoDB**
+
 ```python
 table.put_item(Item={
-    'request_id': request_id,
-    'timestamp': now.isoformat() + 'Z',
-    's3_path': f"s3://{bucket_name}/{s3_key}",
+    'request_id':      request_id,
+    'timestamp':       now.isoformat() + 'Z',
+    's3_path':         f"s3://{bucket_name}/{s3_key}",
     'avg_temperature': Decimal(str(avg_temperature)),
-    'error_count': error_count,
-    'record_count': len(records)
+    'error_count':     error_count,
+    'record_count':    len(records)
 })
 ```
-**Etape E - Reponse HTTP 201**
-En cas de succes, la Lambda retourne HTTP 201 (Created) avec un resume JSON de
-l'ingestion. Le code 201 est prefere au 200 car il signifie qu'une ressource a
-ete creee (le fichier JSON dans S3 et l'entree dans DynamoDB).
+
+**Etape F - Reponse HTTP 201**
+
+FastAPI retourne HTTP 201 avec le resume de l'ingestion.
+
 ### 3.2 Gestion des erreurs
-Le code distingue deux types d'erreurs intentionnellement :
-- **JSONDecodeError** : payload JSON syntaxiquement invalide. L'erreur est capturee,
-  le stack trace est logue, et la Lambda retourne HTTP 400. Elle ne crashe pas.
-- **Toute autre erreur** (ValueError sur temperature invalide, erreur boto3, etc.) :
-  le stack trace est logue, puis l'exception est relevee avec `raise`. La Lambda
-  crashe avec une erreur Lambda visible dans CloudWatch.
+
+| Scenario | Declencheur | Comportement | Code HTTP |
+|----------|-------------|--------------|-----------|
+| Schema invalide (sensor_id absent) | Pydantic ValidationError | FastAPI retourne 422 automatiquement, Lambda ne crashe pas | 422 |
+| records vide `[]` | ValueError explicite dans le handler | global_exception_handler logue + releve, Mangum retourne 500 | 500 |
+| Erreur AWS (S3, DynamoDB) | Exception boto3 | global_exception_handler logue + releve, Mangum retourne 500 | 500 |
+
+> **Note** : avec Mangum, meme si une exception est relevee (raise) dans un handler
+> FastAPI, Mangum l'intercepte et retourne HTTP 500 proprement. La Lambda elle-meme
+> ne "crashe" pas au sens strict (la fonction retourne une reponse valide a AWS),
+> mais l'erreur est bien loguee dans CloudWatch.
 ---
 ## Etape 4 - Execution des tests avec test_client.py
 ### 4.1 Configurer l'URL dans le script
@@ -270,9 +348,12 @@ python test_client.py
 ```
 Le script execute automatiquement trois scenarios de test dans l'ordre.
 ### 4.3 Test 1 - Payload valide (HTTP 201 attendu)
+
 Ce test envoie un batch de 4 mesures capteurs bien formees. Deux capteurs sont en
 statut OK et deux en statut ERROR. Les temperatures sont 72.5, 89.3, 68.1 et 95.7 C.
+
 Calcul attendu : (72.5 + 89.3 + 68.1 + 95.7) / 4 = 81.4 C  |  Anomalies : 2
+
 Sortie attendue dans le terminal :
 ```
 -----------------------------------------------------------------
@@ -286,33 +367,45 @@ Sortie attendue dans le terminal :
     error_count     : 2
     record_count    : 4
 ```
+
 Si vous obtenez HTTP 201 avec ces valeurs, le pipeline fonctionne de bout en bout.
-### 4.4 Test 2 - Payload corrompu (provoque un crash Lambda visible dans CloudWatch)
-Ce test envoie des capteurs avec des temperatures sous forme de chaines de caracteres
-non convertibles en nombre ("SURCHAUFFE_CRITIQUE", "N/A"). Quand la Lambda execute
-`float("SURCHAUFFE_CRITIQUE")`, un ValueError est leve.
-Ce ValueError est intentionnellement releve (raise) dans le code pour que CloudWatch
-l'enregistre comme un vrai crash Lambda, avec le stack trace Python complet.
+
+### 4.4 Test 2 - Records vide (provoque un HTTP 500 avec stack trace dans CloudWatch)
+
+Ce test envoie un payload avec `records: []` (liste vide). La fonction `ingest_iot_data`
+detecte la liste vide et leve un `ValueError`. Le gestionnaire global FastAPI logue le
+stack trace complet et releve l'exception, ce qui amene Mangum a retourner HTTP 500.
+
+> **Note** : avec FastAPI + Mangum, la fonction Lambda elle-meme retourne une reponse
+> valide (HTTP 500 structure) plutot que de crasher. La metrique Lambda "Errors" n'est
+> pas incrementee, mais le stack trace Python est bien visible dans CloudWatch Logs
+> sous `/aws/lambda/stchabodi-iot-ingestion`.
+
 Sortie attendue dans le terminal :
 ```
 -----------------------------------------------------------------
-  Test 2 : payload corrompu - temperatures invalides (type string)
+  Test 2 : records vide -> ValueError Lambda -> stack trace CloudWatch
 -----------------------------------------------------------------
   Statut HTTP recu : 500
-  -> Verifier le groupe de logs /aws/lambda/... dans CloudWatch
+  -> Verifier /aws/lambda/stchabodi-iot-ingestion dans CloudWatch
      pour voir le stack trace Python complet de ce ValueError.
 ```
-### 4.5 Test 3 - JSON syntaxiquement invalide (HTTP 400 attendu)
-Ce test envoie une chaine brute qui n'est pas du JSON valide. La Lambda tente de la
-parser avec `json.loads()`, qui leve un JSONDecodeError capturee proprement.
-La Lambda retourne HTTP 400 sans crasher.
+
+### 4.5 Test 3 - Schema invalide : sensor_id manquant (HTTP 422 attendu)
+
+Ce test envoie un enregistrement sans le champ `sensor_id` qui est requis dans le modele
+Pydantic `SensorRecord`. FastAPI detecte automatiquement la violation de schema et retourne
+HTTP 422 (Unprocessable Entity) avec le detail de l'erreur de validation. La Lambda ne
+realise aucun traitement metier.
+
 Sortie attendue :
 ```
 -----------------------------------------------------------------
-  Test 3 : JSON syntaxiquement invalide (HTTP 400 attendu)
+  Test 3 : schema invalide (sensor_id manquant) -> HTTP 422 Pydantic
 -----------------------------------------------------------------
-  Statut HTTP recu : 400
-  Reponse : {"error": "Payload JSON invalide: Expecting value..."}
+  Statut HTTP recu : 422
+  Reponse : {"detail": [{"loc": ["body", "records", 0, "sensor_id"],
+             "msg": "field required", "type": "value_error.missing"}]}
 ```
 ---
 ## Etape 5 - Verification des donnees dans Amazon S3
@@ -414,47 +507,50 @@ Dans la console AWS :
 4. Vous voyez la liste des flux de journaux, un flux par invocation
 5. Cliquez sur le flux le plus recent pour voir les logs
 ### 8.2 Log d'une execution reussie (Test 1)
+
 Apres le Test 1, ouvrez le flux de log correspondant. Vous devez trouver cette sequence
 qui prouve que chaque etape du pipeline s'est bien deroulee :
 ```
-[START] Execution Lambda - request_id=12345678-abcd-ef01-2345-6789abcdef01
-[EVENT] {"resource": "/ingest", "path": "/ingest", "httpMethod": "POST", ...}
-[PARSE] 4 enregistrement(s) recu(s)
+[START] request_id=12345678-abcd-ef01-2345-6789abcdef01 | 4 enregistrement(s)
 [S3] Fichier sauvegarde : s3://stchabodi-iot-datalake/raw-zone/year=2026/month=06/...
-[METRICS] avg_temperature=81.4C | error_count=2 | total_records=4
+[METRICS] avg_temperature=81.4C | error_count=2 | record_count=4
 [DYNAMODB] Rapport enregistre : request_id=12345678-abcd-ef01-2345-6789abcdef01
 [END] Succes - HTTP 201
 ```
+
 **Capture d'ecran requise ici :** Le log d'une execution reussie montrant la sequence
 complete de [START] a [END] avec le code HTTP 201.
-### 8.3 Log d'une execution en echec (Test 2 - ValueError)
-Le Test 2 a deliberement envoye des temperatures invalides. Retrouvez dans CloudWatch
-le flux de log du Test 2 (marque en rouge avec le statut ERROR).
-Vous devez voir le Traceback Python complet indiquant la ligne exacte du crash :
+
+### Log d'une execution en echec (Test 2 - ValueError sur records vide)
+
+Le Test 2 a envoye `records: []`. L'endpoint FastAPI leve un `ValueError`. Retrouvez dans
+CloudWatch le flux de log du Test 2. Vous devez voir le message d'erreur et le Traceback :
 ```
-ERREUR INTERNE: could not convert string to float: 'SURCHAUFFE_CRITIQUE'
+[ERROR-INTERNAL] ValueError: Le champ 'records' est vide - aucun enregistrement a ingerer
 Traceback (most recent call last):
-  File "/var/task/index.py", line 47, in lambda_handler
-    temps = [float(r['temperature']) for r in records
-             if 'temperature' in r and r['temperature'] is not None]
-  File "/var/task/index.py", line 47, in <listcomp>
-    temps = [float(r['temperature']) for r in records ...]
-ValueError: could not convert string to float: 'SURCHAUFFE_CRITIQUE'
+  File "/var/task/index.py", line XX, in ingest_iot_data
+    raise ValueError("Le champ 'records' est vide - aucun enregistrement a ingerer")
+ValueError: Le champ 'records' est vide - aucun enregistrement a ingerer
 ```
-Comme l'exception est relevee (raise), la Lambda crashe. La metrique "Errors" est
-incrementee et le flux de log est marque ERROR dans la console CloudWatch.
 **Capture d'ecran requise ici :** Le log d'une execution en echec montrant le stack
 trace Python complet du ValueError.
-### 8.4 Comprendre la difference entre les deux types d'erreurs
-Il est utile de distinguer deux comportements dans notre code.
-Erreur geree (Test 3 - JSONDecodeError) : la Lambda detecte que le JSON est invalide,
-logue le stack trace et retourne HTTP 400 sans crasher. La metrique "Errors" n'est pas
-incrementee. Le stack trace est visible dans les logs mais CloudWatch ne marque pas
-l'invocation comme erreur.
-Erreur relevee (Test 2 - ValueError) : la Lambda logue le stack trace puis execute
-`raise`. L'exception remonte au runtime Lambda qui marque l'invocation comme ERROR.
-La metrique "Errors" est incrementee. API Gateway recoit HTTP 502. C'est ce comportement
-qui permet a CloudWatch de declencher automatiquement des alertes.
+### Comprendre la difference entre les deux types d'erreurs
+
+Il est utile de distinguer deux comportements dans notre code FastAPI.
+
+**Erreur de validation schema (Test 3 - Pydantic ValidationError)** : FastAPI detecte
+que le schema du payload n'est pas respecte (champ requis `sensor_id` absent) et
+retourne automatiquement HTTP 422 sans entrer dans le handler. Le stack trace n'est
+pas visible dans CloudWatch car l'exception est geree en interne par FastAPI.
+
+**Erreur interne relevee (Test 2 - ValueError sur records vide)** : le handler leve
+un `ValueError`, le `global_exception_handler` logue le stack trace complet dans
+CloudWatch puis execute `raise`. Mangum intercepte l'exception et retourne HTTP 500.
+La Lambda elle-meme ne "crashe" pas (elle retourne une reponse valide), mais l'erreur
+est bien loguee et le stack trace Python est visible dans CloudWatch.
+
+**Capture d'ecran requise ici :** Le log d'une execution en echec montrant le stack
+trace Python complet du ValueError.
 ---
 ## Reponses aux questions theoriques
 ---
@@ -603,9 +699,12 @@ marque l'invocation comme ERROR, enregistre le Traceback Python complet avec le
 numero de ligne exact, et incremente la metrique Errors. L'API Gateway retourne
 HTTP 502 a l'appelant.
 Dans notre projet, nous utilisons traceback.print_exc() pour enrichir les logs dans
-les erreurs gerees. Pour les erreurs non gerees (Test 2 - ValueError), nous executons
-`raise` pour que CloudWatch l'enregistre comme un vrai crash Lambda avec metrique
-Errors incrementee.
+les erreurs gerees. Pour les erreurs internes relevees (Test 2 - ValueError),
+l'exception est loguee par le global_exception_handler de FastAPI, puis relevee.
+Mangum intercepte cette exception et retourne HTTP 500 de facon propre a API Gateway.
+Cela signifie que la Lambda elle-meme ne "crashe" pas techniquement (elle retourne
+une reponse valide), mais le stack trace Python complet est bien visible dans
+CloudWatch Logs sous /aws/lambda/stchabodi-iot-ingestion pour le diagnostic.
 ---
 ### Question 8 - Pourquoi Lambda atteint ses limites avec 50 Go, et quelle alternative
 Lambda est excellent pour traiter des evenements de petite taille en temps reel.
@@ -694,5 +793,212 @@ Pour convertir DOCUMENTATION.md en PDF :
 - Visual Studio Code avec l'extension "Markdown PDF" (clic droit -> Export as PDF)
 - Pandoc en ligne de commande : pandoc DOCUMENTATION.md -o rapport_stchabodi.pdf
 - Copier le contenu dans Google Docs et exporter via Fichier -> Telecharger -> PDF
+------
+## Guide de deploiement avec AWS SAM CLI
+Le projet utilise **AWS SAM CLI** (Serverless Application Model) pour construire et
+deployer l'infrastructure, exactement comme dans le TP4. SAM emballe automatiquement
+le code Python, gere le bucket S3 intermediaire, et orchestre le deploiement
+CloudFormation en mode guide.
+### Structure apres migration vers SAM
+```
+devoir_final/
+├── infrastructure/
+│   └── template.yaml       <- template SAM (Transform: AWS::Serverless-2016-10-31)
+├── src/
+│   ├── index.py            <- code source de la Lambda (reference par CodeUri)
+│   └── requirements.txt    <- dependances Python (vide : boto3 est pre-installe)
+├── Makefile                <- raccourcis make validate / build / deploy
+├── test_client.py
+├── index.html
+└── DOCUMENTATION.md
+```
+La principale difference avec la version CloudFormation pure : le code de la Lambda
+n est plus ecrit en inline dans le YAML. Il vit dans `src/index.py` et SAM s'occupe
+de le packager lors du `sam build`.
 ---
-*Documentation produite dans le cadre du Devoir Final - Cloud Computing et Big Data, Master 1, Juin 2026*
+### Etape A - Verifier l'installation de SAM CLI
+```bash
+sam --version
+```
+Reponse attendue : `SAM CLI, version 1.x.x`
+Si SAM CLI n'est pas installe, suivez le guide officiel :
+https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+Verifiez aussi que Docker est installe et en cours d'execution (requis pour sam build) :
+```bash
+docker --version
+```
+> SAM CLI utilise Docker pour construire le package Lambda dans un environnement
+> identique a celui de production AWS. Sans Docker, utilisez l'option `--use-container=false`
+> si toutes vos dependances sont compatibles (ce qui est notre cas ici).
+---
+### Etape B - Valider le template
+Avant de construire quoi que ce soit, on valide la syntaxe du template SAM/CloudFormation :
+```bash
+make validate
+```
+Equivalent direct :
+```bash
+sam validate --region eu-west-3 --template infrastructure/template.yaml --lint
+```
+Reponse attendue si tout est correct :
+```
+infrastructure/template.yaml is a valid SAM Template
+```
+Si une erreur apparait, le message indique precisement la ligne et la propriete
+incorrecte. Corrigez avant de continuer.
+---
+### Etape C - Construire le package Lambda
+`sam build` lit `infrastructure/template.yaml`, localise la fonction Lambda via
+`CodeUri: ../src/`, installe les dependances de `src/requirements.txt`, puis
+genere un artefact deployable dans `.aws-sam/build/`.
+```bash
+make build
+```
+Equivalent direct :
+```bash
+sam build --region eu-west-3 --template infrastructure/template.yaml
+```
+Sortie attendue :
+```
+Building codeuri: .../src/ runtime: python3.11 ...
+Running PythonPipBuilder:ResolveDependencies
+Running PythonPipBuilder:CopySource
+Build Succeeded
+Built Artifacts  : .aws-sam/build
+Built Template   : .aws-sam/build/template.yaml
+Commands you can use next
+=========================
+[*] Validate SAM template: sam validate
+[*] Invoke Function: sam local invoke
+[*] Deploy: sam deploy --guided
+```
+Le dossier `.aws-sam/build/` contient maintenant le code Python pret a etre uploade
+sur AWS. Ce dossier est ignore par Git (il est dans `.gitignore`).
+---
+### Etape D - Premier deploiement (mode guide interactif)
+Le premier deploiement utilise le mode `--guided` qui pose des questions et cree
+le fichier `samconfig.toml` pour les deploiements suivants.
+```bash
+make deploy
+```
+Equivalent direct :
+```bash
+sam deploy --guided \
+  --region eu-west-3 \
+  --stack-name tp-final-iot-pipeline-stchabodi \
+  --template-file .aws-sam/build/template.yaml \
+  --no-fail-on-empty-changeset \
+  --parameter-overrides Environment=stchabodi \
+  --capabilities CAPABILITY_IAM
+```
+SAM posera les questions suivantes. Voici les reponses recommandees :
+```
+Configuring SAM deploy
+======================
+        Looking for config file [samconfig.toml] :  Not found
+        Setting default arguments for 'sam deploy'
+        =========================================
+        Stack Name [sam-app]: tp-final-iot-pipeline-stchabodi
+        AWS Region [eu-west-3]: eu-west-3
+        Parameter Environment [stchabodi]: stchabodi
+        #Shows you resources changes to be deployed and require a 'Y' to initiate deploy
+        Confirm changes before deploy [y/N]: y
+        #SAM needs permission to be able to create roles to connect to the resources in your template
+        Allow SAM CLI IAM role creation [Y/n]: y
+        #Preserves the state of previously provisioned resources when an operation fails
+        Disable rollback [y/N]: N
+        Save arguments to configuration file [Y/n]: y
+        SAM configuration file [samconfig.toml]: samconfig.toml
+        SAM configuration environment [default]: default
+```
+SAM va ensuite afficher le changeset et demander confirmation :
+```
+CloudFormation stack changeset
+-----------------------------------------
+Operation  LogicalResourceId      Type
+-----------------------------------------
++ Add      S3BucketRaw            AWS::S3::Bucket
++ Add      S3BucketDoc            AWS::S3::Bucket
++ Add      DynamoDBTable          AWS::DynamoDB::Table
+...
+-----------------------------------------
+Changeset created successfully.
+Previewing CloudFormation changeset before deployment
+======================================================
+Deploy this changeset? [y/N]: y
+```
+Repondez `y`. Le deploiement demarre et prend 3 a 5 minutes.
+---
+### Etape E - Recuperer les Outputs (URLs CloudFront)
+A la fin du deploiement, SAM affiche automatiquement les Outputs de la pile :
+```
+CloudFormation outputs from deployed stack
+-----------------------------------------
+Key    CloudFrontIngestionURL
+Value  https://XXXXXXXXXXXXX.cloudfront.net/ingest
+Key    CloudFrontDocURL
+Value  https://YYYYYYYYYYYYY.cloudfront.net
+-----------------------------------------
+```
+Notez ces deux URLs. Vous pouvez aussi les retrouver a tout moment avec :
+```bash
+aws cloudformation describe-stacks \
+  --stack-name tp-final-iot-pipeline-stchabodi \
+  --query 'Stacks[0].Outputs' \
+  --output table \
+  --region eu-west-3
+```
+> **Capture d'ecran requise :** les Outputs de la pile dans la console CloudFormation
+> ou dans le terminal apres `sam deploy`.
+---
+### Etape F - Uploader la documentation dans S3
+Une fois la pile deployee, uploadez la page de documentation dans le bucket prive :
+```bash
+aws s3 cp index.html s3://stchabodi-tech-doc/index.html \
+  --content-type "text/html; charset=utf-8" \
+  --region eu-west-3
+```
+---
+### Etape G - Configurer et lancer les tests
+Ouvrez `test_client.py`, remplacez `CLOUDFRONT_INGESTION_URL` par la valeur
+recuperee dans les Outputs, puis lancez :
+```bash
+python test_client.py
+```
+Les trois tests (payload valide, corrompu, JSON invalide) s'executent dans l'ordre.
+---
+### Etape H - Deploiements suivants (apres une modification du code)
+Apres avoir modifie `src/index.py` ou `infrastructure/template.yaml`, le cycle
+est toujours : build puis deploy-update (pas besoin de `--guided` a nouveau).
+```bash
+make build
+make deploy-update
+```
+SAM compare l'etat actuel de la pile avec les changements et n'applique que le delta.
+---
+### Etape I - Nettoyage en fin de TP
+Pour supprimer la pile et toutes ses ressources AWS (evite les couts) :
+```bash
+make delete
+```
+Puis nettoyer les artefacts locaux :
+```bash
+make clean
+```
+> Attention : la suppression de la pile supprime aussi les buckets S3 seulement
+> s'ils sont vides. Si des fichiers ont ete ingeres, videz d'abord le bucket :
+> `aws s3 rm s3://stchabodi-iot-datalake --recursive`
+---
+### Recapitulatif des commandes SAM
+| Commande make | Commande SAM equivalente | Quand l'utiliser |
+|---------------|--------------------------|------------------|
+| `make validate` | `sam validate --lint` | Verifier la syntaxe avant chaque build |
+| `make build` | `sam build` | Apres chaque modification du code ou du template |
+| `make deploy` | `sam deploy --guided` | Premier deploiement uniquement |
+| `make deploy-update` | `sam deploy` | Tous les deploiements suivants |
+| `make delete` | `aws cloudformation delete-stack` | Fin du TP / nettoyage |
+| `make clean` | Suppression `.aws-sam/` | Nettoyer les artefacts locaux |
+
+---
+
+*Documentation produite dans le cadre du Devoir Final - Introduction a AWS, Master 1, Juin 2026*

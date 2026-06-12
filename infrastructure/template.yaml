@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: >
   Devoir Final - Pipeline d'Ingestion de Donnees IoT en Temps Reel (Serverless)
   Infrastructure complete : Lambda, API Gateway, S3, DynamoDB, CloudFront (x2), OAC
@@ -9,6 +10,13 @@ Parameters:
     Default: 'stchabodi'
     Description: 'Votre identifiant etudiant (sans le prefixe learnaws)'
 
+# Valeurs par defaut appliquees a toutes les fonctions Lambda du template
+Globals:
+  Function:
+    Runtime: python3.10
+    Timeout: 30
+    MemorySize: 256
+
 Resources:
 
   # Bucket S3 pour le Data Lake - stockage brut des donnees IoT
@@ -18,11 +26,6 @@ Resources:
       BucketName: !Sub '${Environment}-iot-datalake'
       VersioningConfiguration:
         Status: Enabled
-      Tags:
-        - Key: Project
-          Value: IoTPipeline
-        - Key: Layer
-          Value: DataLake
 
   # Bucket S3 pour la documentation technique - acces prive, expose via CloudFront OAC uniquement
   S3BucketDoc:
@@ -34,11 +37,6 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      Tags:
-        - Key: Project
-          Value: IoTPipeline
-        - Key: Layer
-          Value: Documentation
 
   # Table DynamoDB servant de Feature Store pour les metriques agregees
   DynamoDBTable:
@@ -52,11 +50,6 @@ Resources:
       KeySchema:
         - AttributeName: request_id
           KeyType: HASH
-      Tags:
-        - Key: Project
-          Value: IoTPipeline
-        - Key: Layer
-          Value: FeatureStore
 
   # Role IAM attribue a la fonction Lambda avec les permissions minimales necessaires
   LambdaExecutionRole:
@@ -90,77 +83,18 @@ Resources:
                 Resource: !GetAtt DynamoDBTable.Arn
 
   # Fonction Lambda de traitement des donnees IoT - runtime Python 3.11
+  # Le code source est dans src/index.py - packager par "sam build"
   LambdaFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub '${Environment}-iot-ingestion'
       Handler: index.lambda_handler
+      CodeUri: ../src/
       Role: !GetAtt LambdaExecutionRole.Arn
-      Runtime: python3.11
-      Timeout: 30
-      MemorySize: 256
       Environment:
         Variables:
           S3_BUCKET: !Sub '${Environment}-iot-datalake'
           DYNAMODB_TABLE: !Sub '${Environment}-iot-feature-store'
-      Code:
-        ZipFile: |
-          import json, os, uuid, boto3, traceback
-          from datetime import datetime
-          from decimal import Decimal
-
-          s3 = boto3.client('s3')
-          dynamodb = boto3.resource('dynamodb')
-
-          def lambda_handler(event, context):
-              print(f"Event: {json.dumps(event)}")
-              try:
-                  body = json.loads(event.get('body') or '{}')
-                  records = body.get('records', [])
-                  if not records:
-                      raise ValueError("Champ 'records' manquant ou vide")
-                  now = datetime.utcnow()
-                  rid = context.aws_request_id
-                  key = f"raw-zone/year={now.year}/month={now.month:02d}/{rid}.json"
-                  bucket = os.environ['S3_BUCKET']
-                  s3.put_object(Bucket=bucket, Key=key,
-                      Body=json.dumps(body, ensure_ascii=False),
-                      ContentType='application/json')
-                  print(f"S3 OK: {key}")
-                  temps = [float(r['temperature']) for r in records if 'temperature' in r and r['temperature'] is not None]
-                  avg_t = round(sum(temps)/len(temps), 2) if temps else 0.0
-                  err_c = sum(1 for r in records if r.get('status') == 'ERROR')
-                  table = dynamodb.Table(os.environ['DYNAMODB_TABLE'])
-                  table.put_item(Item={
-                      'request_id': rid,
-                      'timestamp': now.isoformat() + 'Z',
-                      's3_path': f"s3://{bucket}/{key}",
-                      'avg_temperature': Decimal(str(avg_t)),
-                      'error_count': err_c,
-                      'record_count': len(records)
-                  })
-                  print(f"DynamoDB OK: request_id={rid}, avg_temp={avg_t}, errors={err_c}")
-                  return {
-                      'statusCode': 201,
-                      'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                      'body': json.dumps({'request_id': rid, 'message': 'Ingestion reussie',
-                          's3_path': key, 'avg_temperature': avg_t, 'error_count': err_c,
-                          'record_count': len(records)})
-                  }
-              except json.JSONDecodeError as e:
-                  # Payload JSON syntaxiquement invalide : on logue et on retourne 400
-                  print(f"ERREUR JSON: {e}"); traceback.print_exc()
-                  return {'statusCode': 400, 'headers': {'Content-Type': 'application/json'},
-                      'body': json.dumps({'error': f'Payload JSON invalide: {str(e)}'})}
-              except Exception as e:
-                  # Toute autre erreur (ex: ValueError sur temperature invalide) :
-                  # on logue le stack trace complet et on releve l'exception
-                  # pour que CloudWatch l'enregistre comme une erreur Lambda.
-                  print(f"ERREUR INTERNE: {e}"); traceback.print_exc()
-                  raise
-      Tags:
-        - Key: Project
-          Value: IoTPipeline
 
   # API Gateway REST - point d'entree HTTP de l'architecture
   RestApi:
@@ -190,7 +124,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub >-
           arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations
-
   # Deploiement de l'API sur le stage prod
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment

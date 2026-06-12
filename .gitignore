@@ -8,8 +8,11 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Fichiers de build AWS SAM
+# Artefacts SAM CLI (generes par sam build)
 .aws-sam/
+
+# Fichier de configuration SAM (contient le nom du bucket S3 intermediaire)
+samconfig.toml
 
 # Archives de soumission
 *.zip
